@@ -23,15 +23,22 @@ jobs:
       - name: Install Build Tools
         run: |
           sudo apt-get update || true
-          sudo apt-get install -y --no-install-recommends mmdebstrap qemu-user-static binfmt-support debian-archive-keyring
+          # 安装 mmdebstrap 和关键的 Debian 密钥库包
+          sudo apt-get install -y --no-install-recommends \
+            mmdebstrap \
+            qemu-user-static \
+            binfmt-support \
+            debian-archive-keyring
 
       - name: Manual Deep Cleanup
         run: |
+          # 进一步手动清理没用的预装大文件
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc "/usr/local/share/boost" "$AGENT_TOOLSDIRECTORY"
           df -h
 
       - name: Build Trixie Image
         run: |
+          # 1. 编写环境配置脚本
           cat <<EOF > setup.sh
           #!/bin/bash
           echo "zh_CN.UTF-8 UTF-8" >> /etc/locale.gen
@@ -41,6 +48,8 @@ jobs:
           EOF
           chmod +x setup.sh
 
+          # 2. 执行云编译 (Debian 13 Trixie)
+          # 包含：中文支持、XFCE桌面、Python环境、Supervisor守护进程、必要的硬件固件
           sudo mmdebstrap \
             --architectures=amd64 \
             --components="main,contrib,non-free,non-free-firmware" \
@@ -50,3 +59,13 @@ jobs:
             trixie \
             debian13-stick-rootfs.tar.xz \
             "http://deb.debian.org/debian/"
+          
+          # 3. 修正权限，否则下一阶段无法读取文件
+          sudo chmod 644 debian13-stick-rootfs.tar.xz
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: debian13-image
+          path: debian13-stick-rootfs.tar.xz
+          if-no-files-found: error
