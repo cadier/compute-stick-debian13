@@ -1,5 +1,5 @@
 name: Build Debian 13 For Compute Stick
-on: [push, workflow_dispatch] # 支持手动触发和推送触发
+on: [push, workflow_dispatch]
 
 jobs:
   build:
@@ -8,13 +8,14 @@ jobs:
       - name: Maximize Disk Space
         uses: easimon/maximize-build-space@v10
         with:
-          root-reserve-mb: 2048   # 为宿主机保留 2GB
-          swap-size-mb: 1024      # 减少 Swap 占用
-          remove-dotnet: 'true'   # 删除 .NET
-          remove-android: 'true'  # 删除 Android SDK (很大)
-          remove-haskell: 'true'  # 删除 Haskell
-          remove-codeql: 'true'   # 删除 CodeQL
-          remove-docker-images: 'true' # 删除预装的 Docker 镜像 (非常占空间)
+          root-reserve-mb: 2048
+          swap-size-mb: 1024
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+          remove-docker-images: 'true'
+          overprovision-lvm: 'true'
 
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -22,8 +23,12 @@ jobs:
       - name: Install Build Tools
         run: |
           sudo apt-get update || true
-          # 关键点：安装 debian-archive-keyring 来获取签名密钥
           sudo apt-get install -y --no-install-recommends mmdebstrap qemu-user-static binfmt-support debian-archive-keyring
+
+      - name: Manual Deep Cleanup
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc "/usr/local/share/boost" "$AGENT_TOOLSDIRECTORY"
+          df -h
 
       - name: Build Trixie Image
         run: |
@@ -36,7 +41,6 @@ jobs:
           EOF
           chmod +x setup.sh
 
-          # 加入 --keyring 参数，显式指向 Debian 的密钥库
           sudo mmdebstrap \
             --architectures=amd64 \
             --components="main,contrib,non-free,non-free-firmware" \
@@ -46,9 +50,3 @@ jobs:
             trixie \
             debian13-stick-rootfs.tar.xz \
             "http://deb.debian.org/debian/"
-
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: debian13-image
-          path: debian13-stick-rootfs.tar.xz
