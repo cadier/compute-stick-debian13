@@ -8,13 +8,13 @@ jobs:
       - name: Maximize Disk Space
         uses: easimon/maximize-build-space@v10
         with:
-          root-reserve-mb: 2048
-          swap-size-mb: 1
-          remove-dotnet: 'true'
-          remove-android: 'true'
-          remove-haskell: 'true'
-          remove-codeql: 'true'
-          remove-docker-images: 'true' # 重点：删除 Docker 镜像能省出好几 GB
+          root-reserve-mb: 2048   # 为宿主机保留 2GB
+          swap-size-mb: 1024      # 减少 Swap 占用
+          remove-dotnet: 'true'   # 删除 .NET
+          remove-android: 'true'  # 删除 Android SDK (很大)
+          remove-haskell: 'true'  # 删除 Haskell
+          remove-codeql: 'true'   # 删除 CodeQL
+          remove-docker-images: 'true' # 删除预装的 Docker 镜像 (非常占空间)
 
       - name: Checkout Code
         uses: actions/checkout@v4
