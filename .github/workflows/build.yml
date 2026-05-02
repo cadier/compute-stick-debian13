@@ -1,0 +1,49 @@
+name: Build Debian 13 For Compute Stick
+on: [push, workflow_dispatch] # 支持手动触发和推送触发
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Maximize Disk Space
+        uses: easimon/maximize-build-space@v10
+        with:
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Build Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mmdebstrap qemu-user-static binfmt-support
+
+      - name: Build Trixie Image
+        run: |
+          # 创建一个简单的脚本来处理内部配置（如时区和中文支持）
+          cat <<EOF > setup.sh
+          #!/bin/bash
+          echo "zh_CN.UTF-8 UTF-8" >> /etc/locale.gen
+          locale-gen
+          update-locale LANG=zh_CN.UTF-8
+          echo "debian-stick" > /etc/hostname
+          EOF
+          chmod +x setup.sh
+
+          # 执行云编译
+          sudo mmdebstrap \
+            --architectures=amd64 \
+            --components="main,contrib,non-free,non-free-firmware" \
+            --include="locales,fonts-wqy-microhei,xfce4,xfce4-terminal,lightdm,network-manager-gnome,python3,python3-pip,python3-venv,supervisor,firmware-linux,firmware-realtek,firmware-intel-sound,intel-media-va-driver-non-free,firefox-esr,sudo,nano,htop,zram-tools" \
+            --setup-hook=./setup.sh \
+            trixie \
+            debian13-stick-rootfs.tar.xz \
+            "http://deb.debian.org/debian/"
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: debian13-image
+          path: debian13-stick-rootfs.tar.xz
