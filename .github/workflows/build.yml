@@ -22,11 +22,11 @@ jobs:
       - name: Install Build Tools
         run: |
           sudo apt-get update || true
-          sudo apt-get install -y --no-install-recommends mmdebstrap qemu-user-static binfmt-support
+          # 关键点：安装 debian-archive-keyring 来获取签名密钥
+          sudo apt-get install -y --no-install-recommends mmdebstrap qemu-user-static binfmt-support debian-archive-keyring
 
       - name: Build Trixie Image
         run: |
-          # 创建一个简单的脚本来处理内部配置（如时区和中文支持）
           cat <<EOF > setup.sh
           #!/bin/bash
           echo "zh_CN.UTF-8 UTF-8" >> /etc/locale.gen
@@ -36,10 +36,11 @@ jobs:
           EOF
           chmod +x setup.sh
 
-          # 执行云编译
+          # 加入 --keyring 参数，显式指向 Debian 的密钥库
           sudo mmdebstrap \
             --architectures=amd64 \
             --components="main,contrib,non-free,non-free-firmware" \
+            --keyring=/usr/share/keyrings/debian-archive-keyring.gpg \
             --include="locales,fonts-wqy-microhei,xfce4,xfce4-terminal,lightdm,network-manager-gnome,python3,python3-pip,python3-venv,supervisor,firmware-linux,firmware-realtek,firmware-intel-sound,intel-media-va-driver-non-free,firefox-esr,sudo,nano,htop,zram-tools" \
             --setup-hook=./setup.sh \
             trixie \
