@@ -1,4 +1,4 @@
-name: Debian 13 Trixie GNOME Installer ISO (Legacy live-build Compatible)
+name: Debian 13 Trixie GNOME Installer ISO (GitHub Fully Fixed)
 
 on:
   push:
@@ -49,7 +49,6 @@ jobs:
           export LB_BUILD_WITH_CHROOT_CACHE=false
           export LB_BUILD_WITH_BINARY_CACHE=false
 
-          # ===== 兼容旧版 live-build：删除不支持参数 =====
           lb config \
             --mode debian \
             --distribution trixie \
@@ -68,7 +67,7 @@ jobs:
             --initramfs live-boot \
             --system systemd
 
-          # Debian keyring
+          # Bootstrap 配置
           cat > config/bootstrap <<EOF
           LB_MODE="debian"
           LB_DISTRIBUTION="trixie"
@@ -78,7 +77,7 @@ jobs:
           export DEBOOTSTRAP_KEYRING=/usr/share/keyrings/debian-archive-keyring.gpg
           EOF
 
-          # 通用配置
+          # Common 配置
           cat > config/common <<EOF
           LB_MODE="debian"
           LB_DISTRIBUTION="trixie"
@@ -90,7 +89,7 @@ jobs:
           LB_BACKPORTS="false"
           EOF
 
-          # Binary 配置
+          # Binary 配置（禁用自动内核索引）
           cat > config/binary <<EOF
           LB_MODE="debian"
           LB_DISTRIBUTION="trixie"
@@ -102,15 +101,16 @@ jobs:
           LB_SECURITY="false"
           LB_UPDATES="false"
           LB_BACKPORTS="false"
+          LB_APT_INDICES="false"
           LB_LINUX_FLAVOURS="amd64"
-          LB_LINUX_PACKAGES="linux-image"
+          LB_LINUX_PACKAGES="none"
           EOF
 
-          # 删除所有默认软件源
+          # 删除默认软件源
           rm -rf config/archives
           mkdir -p config/archives
 
-          # 唯一可信 Debian 源
+          # 唯一 Debian 官方源
           cat <<EOF > config/archives/debian.list.chroot
           deb http://deb.debian.org/debian trixie main contrib non-free non-free-firmware
           deb http://deb.debian.org/debian trixie-updates main contrib non-free non-free-firmware
@@ -121,7 +121,7 @@ jobs:
           deb http://deb.debian.org/debian trixie-updates main contrib non-free non-free-firmware
           EOF
 
-          # 软件包
+          # 软件包（手动指定内核）
           mkdir -p config/package-lists
           cat <<EOF > config/package-lists/desktop.list.chroot
           linux-image-amd64
@@ -157,7 +157,7 @@ jobs:
           fcitx5-chinese-addons
           EOF
 
-          # 中文环境
+          # 中文 locale
           mkdir -p config/includes.chroot/etc/default
           echo "LANG=zh_CN.UTF-8" > config/includes.chroot/etc/default/locale
 
@@ -191,11 +191,11 @@ jobs:
           EOF
           chmod +x config/hooks/live/cleanup.hook.chroot
 
-          # 删除 runner 自带 security 源
-          sudo rm -f /etc/apt/sources.list.d/*
+          # 删除 GitHub runner 自带 security 源
+          sudo rm -f /etc/apt/sources.list.d/* || true
           sudo sed -i '/security.debian.org/d' /etc/apt/sources.list || true
 
-          # 开始构建
+          # 构建 ISO
           sudo lb build
 
       - name: Show Build Output
