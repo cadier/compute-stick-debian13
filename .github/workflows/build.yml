@@ -1,4 +1,4 @@
-name: Debian 13 Trixie GNOME Installer ISO (GitHub Fully Fixed)
+name: Debian 13 Trixie GNOME Installer ISO (PipeWire Fixed)
 
 on:
   push:
@@ -89,7 +89,7 @@ jobs:
           LB_BACKPORTS="false"
           EOF
 
-          # Binary 配置（禁用自动内核索引）
+          # Binary 配置
           cat > config/binary <<EOF
           LB_MODE="debian"
           LB_DISTRIBUTION="trixie"
@@ -106,11 +106,11 @@ jobs:
           LB_LINUX_PACKAGES="none"
           EOF
 
-          # 删除默认软件源
+          # 删除默认源
           rm -rf config/archives
           mkdir -p config/archives
 
-          # 唯一 Debian 官方源
+          # Debian 官方源
           cat <<EOF > config/archives/debian.list.chroot
           deb http://deb.debian.org/debian trixie main contrib non-free non-free-firmware
           deb http://deb.debian.org/debian trixie-updates main contrib non-free non-free-firmware
@@ -121,7 +121,7 @@ jobs:
           deb http://deb.debian.org/debian trixie-updates main contrib non-free non-free-firmware
           EOF
 
-          # 软件包（手动指定内核）
+          # 软件包（修复 PipeWire 冲突：删除 pulseaudio）
           mkdir -p config/package-lists
           cat <<EOF > config/package-lists/desktop.list.chroot
           linux-image-amd64
@@ -149,7 +149,10 @@ jobs:
           intel-media-va-driver-non-free
           xserver-xorg-video-intel
           alsa-utils
-          pulseaudio
+          pipewire
+          pipewire-alsa
+          pipewire-pulse
+          wireplumber
           pavucontrol
           fonts-wqy-microhei
           locales
@@ -191,11 +194,11 @@ jobs:
           EOF
           chmod +x config/hooks/live/cleanup.hook.chroot
 
-          # 删除 GitHub runner 自带 security 源
+          # 删除 runner 源污染
           sudo rm -f /etc/apt/sources.list.d/* || true
           sudo sed -i '/security.debian.org/d' /etc/apt/sources.list || true
 
-          # 构建 ISO
+          # 构建
           sudo lb build
 
       - name: Show Build Output
