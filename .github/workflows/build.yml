@@ -1,4 +1,4 @@
-name: Build Debian 13 GNOME ISO (Env Injection)
+name: Build Debian 13 GNOME ISO (Kernel Fixed)
 on: [push, workflow_dispatch]
 
 jobs:
@@ -36,11 +36,11 @@ jobs:
           mkdir -p live-build-dir && cd live-build-dir
           
           # 核心修复：
-          # 1. 回退到标准 lb config 参数
-          # 2. 通过环境变量显式定义 live 包名，彻底堵死 lb 探测 upstart 的路径
+          # 1. 显式锁定环境变量，强制指定 live-boot 相关包名
           export LB_BOOT_PACKAGES="live-boot"
           export LB_CONFIG_PACKAGES="live-config live-config-systemd"
           
+          # 2. 移除 --linux-packages "linux-image" 这种容易产生歧义的简写
           lb config \
             --distribution trixie \
             --debian-installer live \
@@ -56,11 +56,13 @@ jobs:
             --mirror-binary "http://deb.debian.org/debian/" \
             --mirror-binary-security "http://security.debian.org/debian-security"
 
-          # 软件包列表 (GNOME + 核心驱动)
-          # 已按要求剔除 venv 和 supervisor
+          # 软件包列表 (显式包含完整的内核包名)
           mkdir -p config/package-lists
           cat <<EOF > config/package-lists/my-packages.list.chroot
           linux-image-amd64
+          live-boot
+          live-config
+          live-config-systemd
           task-gnome-desktop
           locales
           fonts-wqy-microhei
@@ -85,7 +87,6 @@ jobs:
       - name: Build ISO
         run: |
           cd live-build-dir
-          # 编译时继续带入环境变量，确保万无一失
           export LB_BOOT_PACKAGES="live-boot"
           export LB_CONFIG_PACKAGES="live-config live-config-systemd"
           sudo -E lb build
