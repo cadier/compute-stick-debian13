@@ -27,11 +27,11 @@ jobs:
 
       - name: Prepare Local Keyring
         run: |
-          # 建立本地密钥环目录，防止系统权限干扰
+          # 创建本地密钥目录
           mkdir -p my-iso/keyrings
-          # 直接拷贝系统密钥到本地目录
+          # 拷贝系统自带的 Debian 密钥
           cp /usr/share/keyrings/debian-archive-keyring.gpg my-iso/keyrings/debian-archive-keyring.gpg
-          # 为当前用户初始化 GPG
+          # 初始化本地 GPG 环境
           gpg --list-keys
 
       - name: Manual Deep Cleanup
@@ -43,7 +43,7 @@ jobs:
         run: |
           mkdir -p my-iso/profiles
           
-          # 1. 定义软件包清单 (GNOME 桌面 + 计算棒驱动)
+          # 1. 定义软件包清单 (确保安装 GNOME 桌面环境)
           cat <<EOF > my-iso/profiles/custom.downloads
           locales
           fonts-wqy-microhei
@@ -69,18 +69,14 @@ jobs:
           echo "d-i keyboard-configuration/xkb-keymap select us" >> my-iso/profiles/custom.preseed
 
           # 3. 运行构建
-          # 关键改动：使用环境变量指定 KEYRING 路径，并明确给 build-simple-cdd 指定本地密钥路径
-          export GNUPGHOME=$(pwd)/.gnupg
-          mkdir -p "$GNUPGHOME"
-          chmod 700 "$GNUPGHOME"
-
+          # 明确指定使用本地拷贝的密钥环
           build-simple-cdd \
             --dist trixie \
             --profiles custom \
             --force-preseed \
             --keyring "$(pwd)/my-iso/keyrings/debian-archive-keyring.gpg"
 
-          # 4. 定位并重命名 ISO
+          # 4. 定位生成的 ISO 文件并重命名
           echo "Searching for generated ISO file..."
           ISO_PATH=$(find . -name "*.iso" | head -n 1)
           if [ -z "$ISO_PATH" ]; then
@@ -90,7 +86,7 @@ jobs:
           mv "$ISO_PATH" ./debian13-stick-installer.iso
 
       - name: Upload ISO Artifact
-        uses: actions/artifact@v4
+        uses: actions/upload-artifact@v4
         with:
           name: debian13-install-iso
           path: debian13-stick-installer.iso
