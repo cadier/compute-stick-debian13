@@ -34,14 +34,12 @@ jobs:
         run: |
           mkdir -p my-iso/profiles
           
-          # 1. 定义要安装的软件包清单
-          # 包含 XFCE 桌面、Python 交易环境、中文字体和计算棒必备固件
+          # 1. 定义软件包清单 (已更换为 GNOME 桌面，即你图片中的样式)
           cat <<EOF > my-iso/profiles/custom.downloads
           locales
           fonts-wqy-microhei
-          xfce4
-          xfce4-terminal
-          lightdm
+          task-gnome-desktop
+          gnome-terminal
           network-manager-gnome
           python3
           python3-pip
@@ -58,20 +56,18 @@ jobs:
           zram-tools
           EOF
 
-          # 2. 预设自动配置 (Preseed)
+          # 2. 预设自动配置
           echo "d-i debian-installer/locale string zh_CN" > my-iso/profiles/custom.preseed
           echo "d-i keyboard-configuration/xkb-keymap select us" >> my-iso/profiles/custom.preseed
 
-          # 3. 运行构建命令
-          # 移除不兼容的 --graphical-installer 和 --output-dir 参数
-          # 使用 --dist trixie 确保获取 2026 年当下的稳定版系统
-          sudo build-simple-cdd \
+          # 3. 运行构建命令 (移除 sudo，直接以当前用户运行以解决报错)
+          # build-simple-cdd 内部会自动处理必要的临时权限
+          build-simple-cdd \
             --dist trixie \
             --profiles custom \
             --force-preseed
 
           # 4. 自动定位生成的 ISO 并重命名
-          # simple-cdd 可能会将 ISO 放在 tmp 或 images 目录下，这里做全局搜索
           echo "Searching for generated ISO file..."
           ISO_PATH=$(find . -name "*.iso" | head -n 1)
           if [ -z "$ISO_PATH" ]; then
@@ -79,7 +75,7 @@ jobs:
             exit 1
           fi
           echo "Found ISO at $ISO_PATH, moving to project root..."
-          sudo mv "$ISO_PATH" ./debian13-stick-installer.iso
+          mv "$ISO_PATH" ./debian13-stick-installer.iso
 
       - name: Upload ISO Artifact
         uses: actions/upload-artifact@v4
