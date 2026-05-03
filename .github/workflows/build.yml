@@ -1,4 +1,4 @@
-name: Debian 13 Trixie GNOME ISO (Nuclear Fix)
+name: Debian 13 Trixie GNOME ISO (Pure Injection)
 on: [push, workflow_dispatch]
 
 jobs:
@@ -8,7 +8,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 1. 彻底解决空间不足 (根本原因之二：空间不够会导致 apt 写入失败)
       - name: Free Disk Space
         uses: jlumbroso/free-disk-space@v1.3.1
         with:
@@ -26,33 +25,32 @@ jobs:
         run: |
           mkdir -p build && cd build
           
-          # 第一步：基础初始化
+          # 1. 极简初始化：移除所有可能导致冲突的 mirror 参数
           lb config \
             --distribution trixie \
-            --debian-installer live \
             --archive-areas "main contrib non-free non-free-firmware" \
             --initramfs live-boot \
-            --system systemd \
-            --mirror-bootstrap "http://deb.debian.org/debian/" \
-            --mirror-chroot "http://deb.debian.org/debian/" \
-            --mirror-binary "http://deb.debian.org/debian/"
+            --system systemd
 
-          # 第二步：【根本性修复】直接改写生成的配置文件，消除一切自动生成的污染
-          # 1. 强制锁定内核包名，防止拼接出 linux-amd64
-          sed -i 's/LB_LINUX_FLAVOURS=.*/LB_LINUX_FLAVOURS="amd64"/' config/binary
-          sed -i 's/LB_LINUX_PACKAGES=.*/LB_LINUX_PACKAGES="linux-image"/' config/binary
-          
-          # 2. 彻底关闭所有自动探测的安全源和更新源 (这是 404 报错的根源)
+          # 2. 【核心修复 A】：完全接管软件源配置
+          # 禁用 lb 自动生成的 sources.list，改用我们注入的 .list.chroot 文件
+          sed -i 's/LB_APT_SOURCES_LIST=.*/LB_APT_SOURCES_LIST="false"/' config/binary
           sed -i 's/LB_SECURITY=.*/LB_SECURITY="false"/' config/binary
           sed -i 's/LB_UPDATES=.*/LB_UPDATES="false"/' config/binary
-          sed -i 's/LB_APT_INDICES=.*/LB_APT_INDICES="false"/' config/binary
+          
+          # 3. 【核心修复 B】：锁定内核名
+          sed -i 's/LB_LINUX_FLAVOURS=.*/LB_LINUX_FLAVOURS="amd64"/' config/binary
+          sed -i 's/LB_LINUX_PACKAGES=.*/LB_LINUX_PACKAGES="linux-image"/' config/binary
 
-          # 第三步：手动建立正确的 Debian 官方源清单
+          # 4. 物理注入唯一的官方 Debian 源 (根本上解决配置重复和 Ubuntu 污染)
           mkdir -p config/archives
-          echo "deb http://deb.debian.org/debian trixie main contrib non-free non-free-firmware" > config/archives/debian.list.chroot
-          echo "deb http://security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware" >> config/archives/debian.list.chroot
+          cat <<EOF > config/archives/debian.list.chroot
+          deb http://deb.debian.org/debian trixie main contrib non-free non-free-firmware
+          deb http://security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware
+          deb http://deb.debian.org/debian trixie-updates main contrib non-free non-free-firmware
+          EOF
 
-          # 第四步：注入你要求的软件包清单 (纯净版：GNOME + 驱动 + 基础 Python)
+          # 5. 软件包清单 (满足你的需求：GNOME + 驱动 + 基础 Python)
           mkdir -p config/package-lists
           cat <<EOF > config/package-lists/my.list.chroot
           linux-image-amd64
@@ -76,7 +74,11 @@ jobs:
           locales
           EOF
 
-          # 第五步：执行构建
+          # 6. 预设中文环境
+          mkdir -p config/includes.chroot/etc/default
+          echo "LANG=zh_CN.UTF-8" > config/includes.chroot/etc/default/locale
+
+          # 执行构建
           sudo lb build
 
       - name: Upload ISO
