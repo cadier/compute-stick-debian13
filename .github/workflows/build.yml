@@ -1,4 +1,4 @@
-name: Build Debian 13 GNOME ISO (Fixed Mirrors)
+name: Build Debian 13 GNOME ISO (Fixed Kernel)
 on: [push, workflow_dispatch]
 
 jobs:
@@ -8,7 +8,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 步骤 1：释放空间
+      # 1. 暴力释放空间 (GNOME 编译极其耗费空间)
       - name: Maximize Build Disk Space
         uses: easimon/maximize-build-space@v10
         with:
@@ -21,40 +21,43 @@ jobs:
           remove-docker-images: 'true'
           overprovision-lvm: 'true'
 
-      # 步骤 2：深度清理
+      # 2. 深度清理
       - name: Brutal Disk Cleanup
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc "/usr/local/share/boost" "$AGENT_TOOLSDIRECTORY"
           sudo rm -rf /usr/share/man /usr/share/doc /usr/share/locale
           sudo apt-get clean
 
-      # 步骤 3：安装工具
+      # 3. 安装工具
       - name: Install Live Build Tools
         run: |
           sudo apt-get update
           sudo apt-get install -y live-build debootstrap devscripts
 
-      # 步骤 4：配置 Live Build (核心修复：显式指定所有 Debian 镜像)
+      # 4. 配置 Live Build (核心修复：显式指定 Debian 内核名)
       - name: Configure Live Build
         run: |
           mkdir -p live-build-dir && cd live-build-dir
           
-          # 核心改动：强制将所有镜像源指向 Debian，防止泄露到 Ubuntu 镜像
+          # 核心改动：使用 --linux-flavours 和 --linux-packages 明确锁定 Debian 架构
           lb config \
             --distribution trixie \
             --debian-installer live \
             --archive-areas "main contrib non-free non-free-firmware" \
             --apt-indices false \
             --memtest none \
+            --linux-flavours amd64 \
+            --linux-packages "linux-image" \
             --mirror-bootstrap "http://deb.debian.org/debian/" \
             --mirror-chroot "http://deb.debian.org/debian/" \
             --mirror-chroot-security "http://security.debian.org/debian-security" \
             --mirror-binary "http://deb.debian.org/debian/" \
             --mirror-binary-security "http://security.debian.org/debian-security"
 
-          # 软件包列表 (GNOME 桌面 + 计算棒驱动)
+          # 软件包列表 (GNOME + 交易环境 + 驱动)
           mkdir -p config/package-lists
           cat <<EOF > config/package-lists/my-packages.list.chroot
+          linux-image-amd64
           task-gnome-desktop
           locales
           fonts-wqy-microhei
@@ -76,17 +79,17 @@ jobs:
           bluetooth
           EOF
 
-          # 预设中文环境
+          # 预设中文
           mkdir -p config/includes.chroot/etc/default
           echo "LANG=zh_CN.UTF-8" > config/includes.chroot/etc/default/locale
 
-      # 步骤 5：构建 ISO
+      # 5. 构建 ISO
       - name: Build ISO
         run: |
           cd live-build-dir
           sudo lb build
 
-      # 步骤 6：上传
+      # 6. 重命名与上传
       - name: Locate and Rename ISO
         run: |
           find . -name "*.hybrid.iso" -exec mv {} ./debian13-gnome-stick.iso \;
