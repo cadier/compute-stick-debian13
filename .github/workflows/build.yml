@@ -1,4 +1,4 @@
-name: Build Debian 13 GNOME ISO (Kernel Fixed)
+name: Build Debian 13 GNOME ISO (Final Best Practice)
 on: [push, workflow_dispatch]
 
 jobs:
@@ -31,16 +31,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y live-build debootstrap devscripts
 
-      - name: Configure Live Build
+      - name: Configure and Build
         run: |
           mkdir -p live-build-dir && cd live-build-dir
           
-          # 核心修复：
-          # 1. 显式锁定环境变量，强制指定 live-boot 相关包名
-          export LB_BOOT_PACKAGES="live-boot"
-          export LB_CONFIG_PACKAGES="live-config live-config-systemd"
-          
-          # 2. 移除 --linux-packages "linux-image" 这种容易产生歧义的简写
+          # 1. 基础初始化
           lb config \
             --distribution trixie \
             --debian-installer live \
@@ -49,16 +44,18 @@ jobs:
             --memtest none \
             --initramfs live-boot \
             --system systemd \
-            --linux-flavours amd64 \
             --mirror-bootstrap "http://deb.debian.org/debian/" \
             --mirror-chroot "http://deb.debian.org/debian/" \
-            --mirror-chroot-security "http://security.debian.org/debian-security" \
-            --mirror-binary "http://deb.debian.org/debian/" \
-            --mirror-binary-security "http://security.debian.org/debian-security"
+            --mirror-binary "http://deb.debian.org/debian/"
 
-          # 软件包列表 (显式包含完整的内核包名)
+          # 2. 关键：手动覆盖内核配置，防止 lb 报错 linux-amd64
+          # 我们告诉它内核名就是 linux-image-amd64，不准它自己拼接
+          echo 'LB_LINUX_PACKAGES="linux-image"' > config/binary
+          echo 'LB_LINUX_FLAVOURS="amd64"' >> config/binary
+
+          # 3. 软件包清单 (纯净版：GNOME + Python + 驱动)
           mkdir -p config/package-lists
-          cat <<EOF > config/package-lists/my-packages.list.chroot
+          cat <<EOF > config/package-lists/desktop.list.chroot
           linux-image-amd64
           live-boot
           live-config
@@ -80,16 +77,12 @@ jobs:
           bluetooth
           EOF
 
-          # 预设中文环境
+          # 4. 预设中文
           mkdir -p config/includes.chroot/etc/default
           echo "LANG=zh_CN.UTF-8" > config/includes.chroot/etc/default/locale
 
-      - name: Build ISO
-        run: |
-          cd live-build-dir
-          export LB_BOOT_PACKAGES="live-boot"
-          export LB_CONFIG_PACKAGES="live-config live-config-systemd"
-          sudo -E lb build
+          # 5. 执行构建
+          sudo lb build
 
       - name: Locate and Rename ISO
         run: |
