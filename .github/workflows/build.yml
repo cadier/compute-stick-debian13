@@ -1,4 +1,4 @@
-name: Debian 13 Trixie GNOME Installer ISO (PipeWire Fixed)
+name: Debian 13 Trixie GNOME Installer ISO (Auto Package Bug Fixed)
 
 on:
   push:
@@ -89,7 +89,7 @@ jobs:
           LB_BACKPORTS="false"
           EOF
 
-          # Binary 配置
+          # Binary 配置（关键修复：禁用 auto）
           cat > config/binary <<EOF
           LB_MODE="debian"
           LB_DISTRIBUTION="trixie"
@@ -104,7 +104,13 @@ jobs:
           LB_APT_INDICES="false"
           LB_LINUX_FLAVOURS="amd64"
           LB_LINUX_PACKAGES="none"
+          LB_BOOTLOADERS="grub-efi"
+          LB_BOOTAPPEND_INSTALL=""
           EOF
+
+          # 删除默认 package list（防止 live-build 自动加入 auto）
+          rm -rf config/package-lists
+          mkdir -p config/package-lists
 
           # 删除默认源
           rm -rf config/archives
@@ -121,8 +127,7 @@ jobs:
           deb http://deb.debian.org/debian trixie-updates main contrib non-free non-free-firmware
           EOF
 
-          # 软件包（修复 PipeWire 冲突：删除 pulseaudio）
-          mkdir -p config/package-lists
+          # 软件包
           cat <<EOF > config/package-lists/desktop.list.chroot
           linux-image-amd64
           live-boot
@@ -160,7 +165,7 @@ jobs:
           fcitx5-chinese-addons
           EOF
 
-          # 中文 locale
+          # 中文环境
           mkdir -p config/includes.chroot/etc/default
           echo "LANG=zh_CN.UTF-8" > config/includes.chroot/etc/default/locale
 
@@ -183,7 +188,7 @@ jobs:
           export XMODIFIERS=@im=fcitx
           EOF
 
-          # 清理减重
+          # 清理
           mkdir -p config/hooks/live
           cat <<'EOF' > config/hooks/live/cleanup.hook.chroot
           #!/bin/bash
@@ -194,11 +199,10 @@ jobs:
           EOF
           chmod +x config/hooks/live/cleanup.hook.chroot
 
-          # 删除 runner 源污染
+          # 删除 GitHub runner 污染源
           sudo rm -f /etc/apt/sources.list.d/* || true
           sudo sed -i '/security.debian.org/d' /etc/apt/sources.list || true
 
-          # 构建
           sudo lb build
 
       - name: Show Build Output
