@@ -1,4 +1,4 @@
-name: Build Debian 13 GNOME ISO (Systemd Only)
+name: Build Debian 13 GNOME ISO (Final Decoupled)
 on: [push, workflow_dispatch]
 
 jobs:
@@ -35,8 +35,9 @@ jobs:
         run: |
           mkdir -p live-build-dir && cd live-build-dir
           
-          # 核心修复：通过 --system systemd 显式锁定初始化系统
-          # 这样 live-build 就不会再去寻找过时的 upstart 包
+          # 核心修复：
+          # 1. 使用 --live-boot-packages 和 --live-config-packages 显式指定，防止它去搜 upstart
+          # 2. 移除所有可能触发自动探测的模糊参数
           lb config \
             --distribution trixie \
             --debian-installer live \
@@ -46,7 +47,8 @@ jobs:
             --initramfs live-boot \
             --system systemd \
             --linux-flavours amd64 \
-            --linux-packages "linux-image" \
+            --live-boot-packages "live-boot" \
+            --live-config-packages "live-config live-config-systemd" \
             --mirror-bootstrap "http://deb.debian.org/debian/" \
             --mirror-chroot "http://deb.debian.org/debian/" \
             --mirror-chroot-security "http://security.debian.org/debian-security" \
@@ -54,11 +56,9 @@ jobs:
             --mirror-binary-security "http://security.debian.org/debian-security"
 
           # 软件包列表 (仅保留核心 GNOME、Python 和计算棒驱动)
+          # 注意：这里不再重复写 live-boot 等，因为上面 lb config 已经指定了
           mkdir -p config/package-lists
           cat <<EOF > config/package-lists/my-packages.list.chroot
-          live-boot
-          live-config
-          live-config-systemd
           linux-image-amd64
           task-gnome-desktop
           locales
