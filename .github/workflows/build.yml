@@ -23,16 +23,17 @@ jobs:
       - name: Install ISO Build Tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y simple-cdd mtools xorriso debian-archive-keyring gpg
+          sudo apt-get install -y simple-cdd mtools xorriso debian-archive-keyring gpg wget
 
-      - name: Prepare Local Keyring
+      - name: Force Update Debian Keys
         run: |
-          # 创建本地密钥目录
           mkdir -p my-iso/keyrings
-          # 拷贝系统自带的 Debian 密钥
+          # 1. 尝试从 Debian 官网直接抓取最新的公钥库文件
+          wget -O my-iso/keyrings/debian-archive-keyring.gpg https://ftp-master.debian.org/keys/archive-keyring.gpg || \
           cp /usr/share/keyrings/debian-archive-keyring.gpg my-iso/keyrings/debian-archive-keyring.gpg
-          # 初始化本地 GPG 环境
-          gpg --list-keys
+          
+          # 2. 将密钥导入系统信任环
+          gpg --no-default-keyring --keyring ./my-iso/keyrings/debian-archive-keyring.gpg --export | sudo gpg --import
 
       - name: Manual Deep Cleanup
         run: |
@@ -43,7 +44,7 @@ jobs:
         run: |
           mkdir -p my-iso/profiles
           
-          # 1. 定义软件包清单 (确保安装 GNOME 桌面环境)
+          # 定义软件包清单 (GNOME 桌面 + 计算棒必备驱动)
           cat <<EOF > my-iso/profiles/custom.downloads
           locales
           fonts-wqy-microhei
@@ -64,19 +65,19 @@ jobs:
           zram-tools
           EOF
 
-          # 2. 预设自动配置
+          # 预设自动配置
           echo "d-i debian-installer/locale string zh_CN" > my-iso/profiles/custom.preseed
           echo "d-i keyboard-configuration/xkb-keymap select us" >> my-iso/profiles/custom.preseed
 
-          # 3. 运行构建
-          # 明确指定使用本地拷贝的密钥环
+          # 运行构建
+          # 使用强制指定的本地最新密钥环
           build-simple-cdd \
             --dist trixie \
             --profiles custom \
             --force-preseed \
             --keyring "$(pwd)/my-iso/keyrings/debian-archive-keyring.gpg"
 
-          # 4. 定位生成的 ISO 文件并重命名
+          # 定位并重命名 ISO
           echo "Searching for generated ISO file..."
           ISO_PATH=$(find . -name "*.iso" | head -n 1)
           if [ -z "$ISO_PATH" ]; then
