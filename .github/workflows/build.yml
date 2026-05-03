@@ -1,4 +1,4 @@
-name: Debian 13 Trixie GNOME Installer ISO (Security Fully Removed)
+name: Debian 13 Trixie GNOME Installer ISO (Legacy live-build Compatible)
 
 on:
   push:
@@ -49,6 +49,7 @@ jobs:
           export LB_BUILD_WITH_CHROOT_CACHE=false
           export LB_BUILD_WITH_BINARY_CACHE=false
 
+          # ===== 兼容旧版 live-build：删除不支持参数 =====
           lb config \
             --mode debian \
             --distribution trixie \
@@ -60,9 +61,6 @@ jobs:
             --apt apt \
             --apt-recommends false \
             --apt-secure true \
-            --security false \
-            --updates false \
-            --backports false \
             --apt-indices false \
             --memtest none \
             --win32-loader false \
@@ -71,9 +69,16 @@ jobs:
             --system systemd
 
           # Debian keyring
-          echo 'export DEBOOTSTRAP_KEYRING=/usr/share/keyrings/debian-archive-keyring.gpg' >> config/bootstrap
+          cat > config/bootstrap <<EOF
+          LB_MODE="debian"
+          LB_DISTRIBUTION="trixie"
+          LB_ARCHITECTURES="amd64"
+          LB_SECURITY="false"
+          LB_UPDATES="false"
+          export DEBOOTSTRAP_KEYRING=/usr/share/keyrings/debian-archive-keyring.gpg
+          EOF
 
-          # ===== 强制覆盖所有配置文件 =====
+          # 通用配置
           cat > config/common <<EOF
           LB_MODE="debian"
           LB_DISTRIBUTION="trixie"
@@ -85,15 +90,7 @@ jobs:
           LB_BACKPORTS="false"
           EOF
 
-          cat > config/bootstrap <<EOF
-          LB_MODE="debian"
-          LB_DISTRIBUTION="trixie"
-          LB_ARCHITECTURES="amd64"
-          LB_SECURITY="false"
-          LB_UPDATES="false"
-          export DEBOOTSTRAP_KEYRING=/usr/share/keyrings/debian-archive-keyring.gpg
-          EOF
-
+          # Binary 配置
           cat > config/binary <<EOF
           LB_MODE="debian"
           LB_DISTRIBUTION="trixie"
@@ -109,11 +106,11 @@ jobs:
           LB_LINUX_PACKAGES="linux-image"
           EOF
 
-          # ===== 删除所有默认 source 文件 =====
+          # 删除所有默认软件源
           rm -rf config/archives
           mkdir -p config/archives
 
-          # 唯一可信源
+          # 唯一可信 Debian 源
           cat <<EOF > config/archives/debian.list.chroot
           deb http://deb.debian.org/debian trixie main contrib non-free non-free-firmware
           deb http://deb.debian.org/debian trixie-updates main contrib non-free non-free-firmware
@@ -183,7 +180,7 @@ jobs:
           export XMODIFIERS=@im=fcitx
           EOF
 
-          # 清理
+          # 清理减重
           mkdir -p config/hooks/live
           cat <<'EOF' > config/hooks/live/cleanup.hook.chroot
           #!/bin/bash
@@ -194,10 +191,11 @@ jobs:
           EOF
           chmod +x config/hooks/live/cleanup.hook.chroot
 
-          # ===== 核心补刀：删除构建阶段 sources.list =====
+          # 删除 runner 自带 security 源
           sudo rm -f /etc/apt/sources.list.d/*
           sudo sed -i '/security.debian.org/d' /etc/apt/sources.list || true
 
+          # 开始构建
           sudo lb build
 
       - name: Show Build Output
