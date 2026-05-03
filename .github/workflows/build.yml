@@ -1,4 +1,4 @@
-name: Debian 13 Trixie GNOME ISO
+name: Debian 13 GNOME Stick ISO
 on: [push, workflow_dispatch]
 
 jobs:
@@ -8,8 +8,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 核心优化 1：彻底清理宿主机，压榨出约 30GB+ 可用空间
-      - name: Free Disk Space (Aggressive)
+      # 核心优化 1：使用目前 GitHub 上最彻底的清空动作，腾出约 35GB 空间
+      - name: Free Disk Space
         uses: jlumbroso/free-disk-space@v1.3.1
         with:
           tool-cache: true
@@ -23,48 +23,52 @@ jobs:
       - name: Install Build Tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y live-build debootstrap
+          sudo apt-get install -y live-build debootstrap devscripts
 
-      - name: Build ISO
+      - name: Configure and Build
         run: |
           mkdir -p build && cd build
           
-          # 核心优化 2：通过环境变量屏蔽所有 Ubuntu 宿主机的干扰
-          export LB_DISTRIBUTION="trixie"
-          export LB_ARCHIVE_AREAS="main contrib non-free non-free-firmware"
-          export LB_MIRROR_BOOTSTRAP="http://deb.debian.org/debian/"
-          export LB_MIRROR_CHROOT="http://deb.debian.org/debian/"
-          export LB_MIRROR_BINARY="http://deb.debian.org/debian/"
-          
-          # 核心优化 3：显式关闭 security 和 updates 自动探测 (防止 404)
-          export LB_SECURITY="false"
-          export LB_UPDATES="false"
-          export LB_INITRAMFS="live-boot"
-          export LB_SYSTEM="systemd"
-          export LB_LINUX_FLAVOURS="amd64"
-
           # 初始化配置
-          lb config
+          lb config \
+            --distribution trixie \
+            --debian-installer live \
+            --archive-areas "main contrib non-free non-free-firmware" \
+            --apt-indices false \
+            --memtest none \
+            --initramfs live-boot \
+            --system systemd \
+            --mirror-bootstrap "http://deb.debian.org/debian/" \
+            --mirror-chroot "http://deb.debian.org/debian/" \
+            --mirror-binary "http://deb.debian.org/debian/"
 
-          # 注入软件源 (手动定义 Debian 官方源，确保 2026 年最新包)
+          # 【核心修复 A】：直接修改生成的配置文件，防止 lb 自动拼接出 linux-amd64
+          # 这是参照 GitHub 稳定模板的做法，暴力覆盖比变量注入更稳
+          sed -i 's/LB_LINUX_FLAVOURS=.*/LB_LINUX_FLAVOURS="amd64"/' config/binary
+          sed -i 's/LB_LINUX_PACKAGES=.*/LB_LINUX_PACKAGES="linux-image"/' config/binary
+
+          # 【核心修复 B】：关掉所有可能泄露 Ubuntu 镜像的自动源生成
+          sed -i 's/LB_SECURITY=.*/LB_SECURITY="false"/' config/binary
+          sed -i 's/LB_UPDATES=.*/LB_UPDATES="false"/' config/binary
+
+          # 手动注入 Debian 官方安全源，彻底解决 404 security.ubuntu.com 报错
           mkdir -p config/archives
-          echo "deb http://deb.debian.org/debian trixie main contrib non-free non-free-firmware" > config/archives/debian.list.chroot
-          echo "deb http://security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware" >> config/archives/debian.list.chroot
+          echo "deb http://security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware" > config/archives/debian-security.list.chroot
 
-          # 注入软件包清单 (满足你的硬核需求：GNOME + 驱动 + 基础 Python)
+          # 软件包清单：只保留你需要的 GNOME、驱动和纯净 Python
           mkdir -p config/package-lists
-          cat <<EOF > config/package-lists/desktop.list.chroot
+          cat <<EOF > config/package-lists/my.list.chroot
           linux-image-amd64
           live-boot
           live-config
           live-config-systemd
           task-gnome-desktop
           network-manager-gnome
+          python3
           firmware-linux
           firmware-realtek
           firmware-intel-sound
           intel-media-va-driver-non-free
-          python3
           firefox-esr
           sudo
           nano
@@ -79,11 +83,11 @@ jobs:
           mkdir -p config/includes.chroot/etc/default
           echo "LANG=zh_CN.UTF-8" > config/includes.chroot/etc/default/locale
 
-          # 执行构建 (带入环境变量并强制使用系统清理)
-          sudo -E lb build
+          # 执行构建
+          sudo lb build
 
       - name: Upload ISO
         uses: actions/upload-artifact@v4
         with:
-          name: debian13-stick-iso
+          name: debian13-gnome-iso
           path: build/*.iso
