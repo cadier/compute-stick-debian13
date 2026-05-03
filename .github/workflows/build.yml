@@ -17,6 +17,7 @@ jobs:
           sudo apt-get clean
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /var/lib/docker
           sudo docker system prune -af || true
+          df -h
 
       - name: Install Build Tools
         run: |
@@ -27,11 +28,19 @@ jobs:
 
       - name: Download Official Debian 13 Netinst ISO
         run: |
-          mkdir -p work
-          cd work
-          # 下载 2026 年 Debian 13 (Trixie) 官方网络安装镜像
-          wget -O debian.iso \
-            https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-13.0.0-amd64-netinst.iso
+          mkdir -p work && cd work
+          # 动态解析最新 Debian 13 镜像路径，防止 404 报错
+          BASE_URL="https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/"
+          ISO_NAME=$(curl -sL $BASE_URL | grep -oP 'debian-[0-9.]+-amd64-netinst.iso' | head -n 1)
+          
+          if [ -z "$ISO_NAME" ]; then
+            echo "Stable not found, trying testing/daily..."
+            BASE_URL="https://cdimage.debian.org/cdimage/daily-builds/daily/arch-latest/amd64/iso-cd/"
+            ISO_NAME=$(curl -sL $BASE_URL | grep -oP 'debian-testing-amd64-netinst.iso' | head -n 1)
+          fi
+          
+          echo "Downloading from: ${BASE_URL}${ISO_NAME}"
+          wget -q -O debian.iso "${BASE_URL}${ISO_NAME}"
 
       - name: Extract ISO
         run: |
@@ -47,7 +56,7 @@ jobs:
           mkdir -p preseed
           
           cat > preseed/custom.cfg <<EOF
-          ### 地区与语言设置
+          ### 地区与语言 (预设中文)
           d-i debian-installer/locale string zh_CN.UTF-8
           d-i keyboard-configuration/xkb-keymap select us
           d-i time/zone string Asia/Shanghai
@@ -57,20 +66,20 @@ jobs:
           d-i netcfg/get_hostname string debian
           d-i netcfg/get_domain string local
 
-          ### 软件源设置
+          ### 镜像源设置
           d-i mirror/country string manual
           d-i mirror/http/hostname string deb.debian.org
           d-i mirror/http/directory string /debian
           d-i mirror/http/proxy string
 
-          ### 用户账户 (预设用户: user 密码: debian)
+          ### 用户账户 (user / debian)
           d-i passwd/root-login boolean false
           d-i passwd/user-fullname string Debian User
           d-i passwd/username string user
           d-i passwd/user-password password debian
           d-i passwd/user-password-again password debian
 
-          ### 分区设置 (手动模式：会停在分区界面等你确认)
+          ### 分区设置 (手动模式：停在分区界面确认，防止误删数据)
           d-i partman-auto/method string regular
           d-i partman-auto/choose_recipe select atomic
           d-i partman-partitioning/confirm_write_new_label boolean false
@@ -78,21 +87,20 @@ jobs:
           d-i partman/confirm boolean false
           d-i partman/confirm_nooverwrite boolean false
 
-          ### 软件包选择
+          ### 软件包清单
           tasksel tasksel/first multiselect standard, gnome-desktop
 
-          # 包含计算棒驱动、蓝牙、Pipewire 音频以及纯净 Python 3
+          # 集成计算棒驱动、蓝牙、音频、Python 3 及中文字体
           d-i pkgsel/include string \
             sudo nano htop python3 python3-pip \
-            firefox-esr \
-            network-manager network-manager-gnome \
+            firefox-esr network-manager-gnome \
             bluez bluetooth gnome-bluetooth \
             firmware-linux firmware-realtek firmware-iwlwifi firmware-intel-sound \
             intel-media-va-driver-non-free \
             pipewire pipewire-alsa pipewire-pulse wireplumber pavucontrol \
             fcitx5 fcitx5-chinese-addons fonts-wqy-microhei locales
 
-          # 剔除你不需要的冗余软件
+          # 剔除你不需要的冗余软件 (保持系统纯净，无 supervisor)
           d-i pkgsel/exclude string \
             libreoffice* games* thunderbird evolution* rhythmbox \
             totem cheese shotwell simple-scan cups* yelp supervisor python3-venv
@@ -104,14 +112,14 @@ jobs:
           d-i grub-installer/only_debian boolean true
           d-i grub-installer/with_other_os boolean true
 
-          ### 结束安装 (会弹出提示点击确认再重启)
+          ### 结束安装
           d-i finish-install/reboot_in_progress note
           EOF
 
       - name: Configure Manual Boot Menu
         run: |
           cd work/extract
-          # 仅注入 preseed 路径，移除 auto=true 以实现手动下一步
+          # 仅注入 preseed 路径，移除 auto=true 和 priority=critical 以支持手动下一步
           sed -i '/append/ s@$@ preseed/file=/cdrom/preseed/custom.cfg@' \
             isolinux/txt.cfg || true
 
@@ -122,7 +130,7 @@ jobs:
         run: |
           cd work/extract
           sudo xorriso -as mkisofs \
-            -r -V "Debian13_Manual_Custom" \
+            -r -V "Debian13_Manual_Stick" \
             -o ../debian13-custom-manual.iso \
             -J -joliet-long -cache-inodes \
             -isohybrid-mbr /usr/lib/ISOLINUX/isohdpfx.bin \
