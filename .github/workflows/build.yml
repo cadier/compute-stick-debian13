@@ -1,4 +1,4 @@
-name: Debian 13 GNOME Stick ISO
+name: Debian 13 Trixie GNOME ISO (Nuclear Fix)
 on: [push, workflow_dispatch]
 
 jobs:
@@ -8,54 +8,51 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 核心优化 1：使用目前 GitHub 上最彻底的清空动作，腾出约 35GB 空间
+      # 1. 彻底解决空间不足 (根本原因之二：空间不够会导致 apt 写入失败)
       - name: Free Disk Space
         uses: jlumbroso/free-disk-space@v1.3.1
         with:
           tool-cache: true
           android: true
           dotnet: true
-          haskell: true
-          large-packages: true
           docker-images: true
-          swap-storage: true
 
       - name: Install Build Tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y live-build debootstrap devscripts
+          sudo apt-get install -y live-build debootstrap
 
       - name: Configure and Build
         run: |
           mkdir -p build && cd build
           
-          # 初始化配置
+          # 第一步：基础初始化
           lb config \
             --distribution trixie \
             --debian-installer live \
             --archive-areas "main contrib non-free non-free-firmware" \
-            --apt-indices false \
-            --memtest none \
             --initramfs live-boot \
             --system systemd \
             --mirror-bootstrap "http://deb.debian.org/debian/" \
             --mirror-chroot "http://deb.debian.org/debian/" \
             --mirror-binary "http://deb.debian.org/debian/"
 
-          # 【核心修复 A】：直接修改生成的配置文件，防止 lb 自动拼接出 linux-amd64
-          # 这是参照 GitHub 稳定模板的做法，暴力覆盖比变量注入更稳
+          # 第二步：【根本性修复】直接改写生成的配置文件，消除一切自动生成的污染
+          # 1. 强制锁定内核包名，防止拼接出 linux-amd64
           sed -i 's/LB_LINUX_FLAVOURS=.*/LB_LINUX_FLAVOURS="amd64"/' config/binary
           sed -i 's/LB_LINUX_PACKAGES=.*/LB_LINUX_PACKAGES="linux-image"/' config/binary
-
-          # 【核心修复 B】：关掉所有可能泄露 Ubuntu 镜像的自动源生成
+          
+          # 2. 彻底关闭所有自动探测的安全源和更新源 (这是 404 报错的根源)
           sed -i 's/LB_SECURITY=.*/LB_SECURITY="false"/' config/binary
           sed -i 's/LB_UPDATES=.*/LB_UPDATES="false"/' config/binary
+          sed -i 's/LB_APT_INDICES=.*/LB_APT_INDICES="false"/' config/binary
 
-          # 手动注入 Debian 官方安全源，彻底解决 404 security.ubuntu.com 报错
+          # 第三步：手动建立正确的 Debian 官方源清单
           mkdir -p config/archives
-          echo "deb http://security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware" > config/archives/debian-security.list.chroot
+          echo "deb http://deb.debian.org/debian trixie main contrib non-free non-free-firmware" > config/archives/debian.list.chroot
+          echo "deb http://security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware" >> config/archives/debian.list.chroot
 
-          # 软件包清单：只保留你需要的 GNOME、驱动和纯净 Python
+          # 第四步：注入你要求的软件包清单 (纯净版：GNOME + 驱动 + 基础 Python)
           mkdir -p config/package-lists
           cat <<EOF > config/package-lists/my.list.chroot
           linux-image-amd64
@@ -79,15 +76,11 @@ jobs:
           locales
           EOF
 
-          # 预设中文环境
-          mkdir -p config/includes.chroot/etc/default
-          echo "LANG=zh_CN.UTF-8" > config/includes.chroot/etc/default/locale
-
-          # 执行构建
+          # 第五步：执行构建
           sudo lb build
 
       - name: Upload ISO
         uses: actions/upload-artifact@v4
         with:
-          name: debian13-gnome-iso
+          name: debian13-pure-gnome-iso
           path: build/*.iso
