@@ -47,15 +47,17 @@ jobs:
           cd work
           mkdir -p iso extract
           sudo mount -o loop debian.iso iso
-          rsync -a iso/ extract/
+          # 使用 sudo rsync 确保文件权限完整
+          sudo rsync -a iso/ extract/
           sudo umount iso
 
       - name: Inject Semi-Auto Preseed
         run: |
-          cd work/extract
-          mkdir -p preseed
+          # 加上 sudo 解决 Permission denied 报错
+          sudo mkdir -p work/extract/preseed
           
-          cat > preseed/custom.cfg <<EOF
+          # 使用 sudo tee 确保 root 权限写入
+          sudo tee work/extract/preseed/custom.cfg <<EOF
           ### 地区与语言 (预设中文)
           d-i debian-installer/locale string zh_CN.UTF-8
           d-i keyboard-configuration/xkb-keymap select us
@@ -90,7 +92,7 @@ jobs:
           ### 软件包清单
           tasksel tasksel/first multiselect standard, gnome-desktop
 
-          # 集成计算棒驱动、蓝牙、音频、Python 3 及中文字体
+          # 集成计算棒驱动、蓝牙、音频、Python 3
           d-i pkgsel/include string \
             sudo nano htop python3 python3-pip \
             firefox-esr network-manager-gnome \
@@ -100,7 +102,7 @@ jobs:
             pipewire pipewire-alsa pipewire-pulse wireplumber pavucontrol \
             fcitx5 fcitx5-chinese-addons fonts-wqy-microhei locales
 
-          # 剔除你不需要的冗余软件 (保持系统纯净，无 supervisor)
+          # 剔除冗余软件 (保持系统纯净，无 supervisor, 无 venv)
           d-i pkgsel/exclude string \
             libreoffice* games* thunderbird evolution* rhythmbox \
             totem cheese shotwell simple-scan cups* yelp supervisor python3-venv
@@ -118,17 +120,15 @@ jobs:
 
       - name: Configure Manual Boot Menu
         run: |
+          # 同样使用 sudo 以免权限不足
           cd work/extract
-          # 仅注入 preseed 路径，移除 auto=true 和 priority=critical 以支持手动下一步
-          sed -i '/append/ s@$@ preseed/file=/cdrom/preseed/custom.cfg@' \
-            isolinux/txt.cfg || true
-
-          sed -i '/linux/ s@$@ preseed/file=/cdrom/preseed/custom.cfg@' \
-            boot/grub/grub.cfg || true
+          sudo sed -i '/append/ s@$@ preseed/file=/cdrom/preseed/custom.cfg@' isolinux/txt.cfg || true
+          sudo sed -i '/linux/ s@$@ preseed/file=/cdrom/preseed/custom.cfg@' boot/grub/grub.cfg || true
 
       - name: Rebuild Custom ISO
         run: |
           cd work/extract
+          # xorriso 同样需要 sudo 权限处理 extract 目录下的 root 文件
           sudo xorriso -as mkisofs \
             -r -V "Debian13_Manual_Stick" \
             -o ../debian13-custom-manual.iso \
