@@ -1,14 +1,14 @@
-name: Build Debian 13 GNOME ISO (Final Source Fix)
+name: Debian 13 Trixie Live Build
 on: [push, workflow_dispatch]
 
 jobs:
-  build-iso:
+  build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Maximize Build Disk Space
+      - name: Maximize Disk Space
         uses: easimon/maximize-build-space@v10
         with:
           root-reserve-mb: 1024
@@ -18,83 +18,72 @@ jobs:
           remove-haskell: 'true'
           remove-codeql: 'true'
           remove-docker-images: 'true'
-          overprovision-lvm: 'true'
 
-      - name: Brutal Disk Cleanup
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc "/usr/local/share/boost" "$AGENT_TOOLSDIRECTORY"
-          sudo rm -rf /usr/share/man /usr/share/doc /usr/share/locale
-          sudo apt-get clean
-
-      - name: Install Live Build Tools
+      - name: Install Build Tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y live-build debootstrap devscripts
+          sudo apt-get install -y live-build debootstrap
 
-      - name: Configure and Build
+      - name: Build ISO
         run: |
-          mkdir -p live-build-dir && cd live-build-dir
+          mkdir -p build && cd build
           
-          # 1. 基础初始化
-          lb config \
-            --distribution trixie \
-            --debian-installer live \
-            --archive-areas "main contrib non-free non-free-firmware" \
-            --apt-indices false \
-            --memtest none \
-            --initramfs live-boot \
-            --system systemd \
-            --mirror-bootstrap "http://deb.debian.org/debian/" \
-            --mirror-chroot "http://deb.debian.org/debian/" \
-            --mirror-binary "http://deb.debian.org/debian/"
+          # 核心技巧：使用 LB_ 前缀环境变量直接注入配置，跳过 lb config 可能产生的错误探测
+          # 这种方法在 GitHub 上被证明是处理 Ubuntu/Debian 混合环境最稳妥的
+          export LB_DISTRIBUTION="trixie"
+          export LB_ARCHIVE_AREAS="main contrib non-free non-free-firmware"
+          export LB_MIRROR_BOOTSTRAP="http://deb.debian.org/debian/"
+          export LB_MIRROR_CHROOT="http://deb.debian.org/debian/"
+          export LB_MIRROR_BINARY="http://deb.debian.org/debian/"
+          # 显式关闭安全源和更新源的自动探测，防止出现 security.ubuntu.com 报错
+          export LB_SECURITY="false"
+          export LB_UPDATES="false"
+          export LB_INITRAMFS="live-boot"
+          export LB_SYSTEM="systemd"
+          export LB_LINUX_FLAVOURS="amd64"
+          export LB_LINUX_PACKAGES="linux-image"
 
-          # 2. 核心修复 A：强制改写内核包名配置
-          echo 'LB_LINUX_PACKAGES="linux-image"' > config/binary
-          echo 'LB_LINUX_FLAVOURS="amd64"' >> config/binary
+          # 初始化配置
+          lb config
 
-          # 3. 核心修复 B：手动定义安全更新源，防止泄露到 Ubuntu 镜像
-          mkdir -p config/archives
-          echo "deb http://security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware" > config/archives/debian-security.list.chroot
-          echo "deb http://deb.debian.org/debian trixie-updates main contrib non-free non-free-firmware" > config/archives/debian-updates.list.chroot
-
-          # 4. 软件包清单 (完全纯净版：GNOME + Python + 驱动)
+          # 注入软件包清单 (按需定制：GNOME + 驱动 + 基础 Python)
           mkdir -p config/package-lists
-          cat <<EOF > config/package-lists/desktop.list.chroot
+          cat <<EOF > config/package-lists/my.list.chroot
           linux-image-amd64
           live-boot
           live-config
           live-config-systemd
           task-gnome-desktop
-          locales
-          fonts-wqy-microhei
           network-manager-gnome
-          python3
           firmware-linux
           firmware-realtek
           firmware-intel-sound
           intel-media-va-driver-non-free
+          python3
           firefox-esr
           sudo
           nano
           htop
           bluez
           bluetooth
+          fonts-wqy-microhei
+          locales
           EOF
 
-          # 5. 预设中文
+          # 注入软件源配置 (物理层面屏蔽 Ubuntu 源)
+          mkdir -p config/archives
+          echo "deb http://deb.debian.org/debian trixie main contrib non-free non-free-firmware" > config/archives/debian.list.chroot
+          echo "deb http://security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware" >> config/archives/debian.list.chroot
+
+          # 预设中文
           mkdir -p config/includes.chroot/etc/default
           echo "LANG=zh_CN.UTF-8" > config/includes.chroot/etc/default/locale
 
-          # 6. 执行构建
-          sudo lb build
+          # 执行构建 (使用 -E 确保环境变量透传给 sudo)
+          sudo -E lb build
 
-      - name: Locate and Rename ISO
-        run: |
-          find . -name "*.hybrid.iso" -exec mv {} ./debian13-gnome-stick.iso \;
-          find . -name "*.iso" ! -name "debian13-gnome-stick.iso" -exec mv {} ./debian13-gnome-stick.iso \;
-
-      - name: Upload ISO Artifact
+      - name: Upload ISO
         uses: actions/upload-artifact@v4
         with:
-          name: debian13-gnome-iso
-          path: debian13-gnome-stick.iso
+          name: debian13-stick-iso
+          path: build/*.iso
