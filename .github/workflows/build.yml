@@ -1,88 +1,155 @@
-name: Debian 13 Trixie GNOME ISO (Pure Injection)
-on: [push, workflow_dispatch]
+```yaml id="k9p2vx"
+name: Debian 13 Trixie Minimal GNOME Installer ISO (GitHub Safe)
+
+on:
+  push:
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Free Disk Space
-        uses: jlumbroso/free-disk-space@v1.3.1
-        with:
-          tool-cache: true
-          android: true
-          dotnet: true
-          docker-images: true
+      - name: Maximum Disk Cleanup
+        run: |
+          sudo apt-get clean
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/.ghcup
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf /var/lib/docker
+          sudo docker system prune -af || true
+          df -h
 
-      - name: Install Build Tools
+      - name: Install Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y live-build debootstrap
+          sudo apt-get install -y \
+            live-build \
+            debootstrap \
+            debian-archive-keyring \
+            arch-test \
+            xorriso \
+            squashfs-tools \
+            grub-pc-bin \
+            grub-efi-amd64-bin \
+            mtools
 
-      - name: Configure and Build
+      - name: Configure Debian 13 Minimal ISO
         run: |
-          mkdir -p build && cd build
-          
-          # 1. 极简初始化：移除所有可能导致冲突的 mirror 参数
+          mkdir -p build
+          cd build
+
+          sudo lb clean --purge || true
+
+          export LB_BUILD_WITH_CHROOT_CACHE=false
+          export LB_BUILD_WITH_BINARY_CACHE=false
+
           lb config \
+            --mode debian \
             --distribution trixie \
+            --architectures amd64 \
             --archive-areas "main contrib non-free non-free-firmware" \
+            --binary-images iso-hybrid \
+            --debian-installer live \
+            --debian-installer-gui true \
+            --apt-recommends false \
+            --apt-indices false \
+            --memtest none \
+            --win32-loader false \
+            --bootappend-live "boot=live components locales=zh_CN.UTF-8 username=live hostname=debian quiet splash" \
             --initramfs live-boot \
-            --system systemd
+            --system systemd \
+            --debootstrap-options "--keyring=/usr/share/keyrings/debian-archive-keyring.gpg"
 
-          # 2. 【核心修复 A】：完全接管软件源配置
-          # 禁用 lb 自动生成的 sources.list，改用我们注入的 .list.chroot 文件
-          sed -i 's/LB_APT_SOURCES_LIST=.*/LB_APT_SOURCES_LIST="false"/' config/binary
-          sed -i 's/LB_SECURITY=.*/LB_SECURITY="false"/' config/binary
-          sed -i 's/LB_UPDATES=.*/LB_UPDATES="false"/' config/binary
-          
-          # 3. 【核心修复 B】：锁定内核名
-          sed -i 's/LB_LINUX_FLAVOURS=.*/LB_LINUX_FLAVOURS="amd64"/' config/binary
-          sed -i 's/LB_LINUX_PACKAGES=.*/LB_LINUX_PACKAGES="linux-image"/' config/binary
+          # 禁止自动源
+          sed -i 's/^LB_APT_SOURCES_LIST=.*/LB_APT_SOURCES_LIST="false"/' config/binary
+          sed -i 's/^LB_SECURITY=.*/LB_SECURITY="false"/' config/binary
+          sed -i 's/^LB_UPDATES=.*/LB_UPDATES="false"/' config/binary
+          sed -i 's/^LB_BACKPORTS=.*/LB_BACKPORTS="false"/' config/binary
 
-          # 4. 物理注入唯一的官方 Debian 源 (根本上解决配置重复和 Ubuntu 污染)
+          # 内核
+          sed -i 's/^LB_LINUX_FLAVOURS=.*/LB_LINUX_FLAVOURS="amd64"/' config/binary
+          sed -i 's/^LB_LINUX_PACKAGES=.*/LB_LINUX_PACKAGES="linux-image"/' config/binary
+
+          # 官方源
           mkdir -p config/archives
           cat <<EOF > config/archives/debian.list.chroot
           deb http://deb.debian.org/debian trixie main contrib non-free non-free-firmware
-          deb http://security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware
           deb http://deb.debian.org/debian trixie-updates main contrib non-free non-free-firmware
           EOF
 
-          # 5. 软件包清单 (满足你的需求：GNOME + 驱动 + 基础 Python)
+          # 极限精简软件包
           mkdir -p config/package-lists
-          cat <<EOF > config/package-lists/my.list.chroot
+          cat <<EOF > config/package-lists/minimal.list.chroot
           linux-image-amd64
           live-boot
           live-config
           live-config-systemd
-          task-gnome-desktop
+          gnome-shell
+          gdm3
+          gnome-session
+          gnome-terminal
+          nautilus
+          network-manager
           network-manager-gnome
-          python3
-          firmware-linux
-          firmware-realtek
-          firmware-intel-sound
-          intel-media-va-driver-non-free
-          firefox-esr
+          debian-installer-launcher
           sudo
           nano
-          htop
-          bluez
-          bluetooth
-          fonts-wqy-microhei
           locales
+          firmware-linux
+          firmware-realtek
+          firmware-iwlwifi
+          firmware-intel-sound
+          xserver-xorg-video-intel
+          fonts-wqy-microhei
           EOF
 
-          # 6. 预设中文环境
+          # 中文 locale
           mkdir -p config/includes.chroot/etc/default
           echo "LANG=zh_CN.UTF-8" > config/includes.chroot/etc/default/locale
 
-          # 执行构建
+          mkdir -p config/includes.chroot/etc
+          cat <<EOF > config/includes.chroot/etc/locale.gen
+          zh_CN.UTF-8 UTF-8
+          en_US.UTF-8 UTF-8
+          EOF
+
+          # sudo
+          mkdir -p config/includes.chroot/etc/sudoers.d
+          echo "live ALL=(ALL) NOPASSWD:ALL" > config/includes.chroot/etc/sudoers.d/live
+
+          # 输入法环境
+          mkdir -p config/includes.chroot/etc/skel
+          cat <<EOF > config/includes.chroot/etc/skel/.xprofile
+          export LANG=zh_CN.UTF-8
+          EOF
+
+          # 清理文档减少体积
+          mkdir -p config/hooks/live
+          cat <<'EOF' > config/hooks/live/cleanup.hook.chroot
+          #!/bin/bash
+          rm -rf /usr/share/doc/*
+          rm -rf /usr/share/man/*
+          rm -rf /usr/share/info/*
+          apt-get clean
+          EOF
+          chmod +x config/hooks/live/cleanup.hook.chroot
+
           sudo lb build
+
+      - name: Show ISO Size
+        run: |
+          ls -lh build/
+          df -h
 
       - name: Upload ISO
         uses: actions/upload-artifact@v4
         with:
-          name: debian13-pure-gnome-iso
+          name: debian13-trixie-minimal-gnome-iso
           path: build/*.iso
+```
