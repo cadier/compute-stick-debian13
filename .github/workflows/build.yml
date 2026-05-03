@@ -1,4 +1,4 @@
-name: Debian 13 Trixie GNOME Installer ISO (Security Repo Fixed)
+name: Debian 13 Trixie GNOME Installer ISO (Security Fully Removed)
 
 on:
   push:
@@ -57,7 +57,12 @@ jobs:
             --binary-images iso-hybrid \
             --debian-installer live \
             --debian-installer-gui true \
+            --apt apt \
             --apt-recommends false \
+            --apt-secure true \
+            --security false \
+            --updates false \
+            --backports false \
             --apt-indices false \
             --memtest none \
             --win32-loader false \
@@ -68,24 +73,47 @@ jobs:
           # Debian keyring
           echo 'export DEBOOTSTRAP_KEYRING=/usr/share/keyrings/debian-archive-keyring.gpg' >> config/bootstrap
 
-          # ===== 核心修复：彻底禁用 security 仓库 =====
-          sed -i 's/^LB_APT=.*/LB_APT="apt"/' config/common
-          sed -i 's/^LB_APT_RECOMMENDS=.*/LB_APT_RECOMMENDS="false"/' config/common
+          # ===== 强制覆盖所有配置文件 =====
+          cat > config/common <<EOF
+          LB_MODE="debian"
+          LB_DISTRIBUTION="trixie"
+          LB_ARCHITECTURES="amd64"
+          LB_APT="apt"
+          LB_APT_RECOMMENDS="false"
+          LB_SECURITY="false"
+          LB_UPDATES="false"
+          LB_BACKPORTS="false"
+          EOF
 
-          sed -i 's/^LB_APT_SOURCES_LIST=.*/LB_APT_SOURCES_LIST="false"/' config/binary
-          sed -i 's/^LB_SECURITY=.*/LB_SECURITY="false"/' config/binary
-          sed -i 's/^LB_UPDATES=.*/LB_UPDATES="false"/' config/binary
-          sed -i 's/^LB_BACKPORTS=.*/LB_BACKPORTS="false"/' config/binary
+          cat > config/bootstrap <<EOF
+          LB_MODE="debian"
+          LB_DISTRIBUTION="trixie"
+          LB_ARCHITECTURES="amd64"
+          LB_SECURITY="false"
+          LB_UPDATES="false"
+          export DEBOOTSTRAP_KEYRING=/usr/share/keyrings/debian-archive-keyring.gpg
+          EOF
 
-          sed -i 's/^LB_SECURITY=.*/LB_SECURITY="false"/' config/bootstrap || true
-          sed -i 's/^LB_UPDATES=.*/LB_UPDATES="false"/' config/bootstrap || true
+          cat > config/binary <<EOF
+          LB_MODE="debian"
+          LB_DISTRIBUTION="trixie"
+          LB_ARCHITECTURES="amd64"
+          LB_BINARY_IMAGES="iso-hybrid"
+          LB_DEBIAN_INSTALLER="live"
+          LB_DEBIAN_INSTALLER_GUI="true"
+          LB_APT_SOURCES_LIST="false"
+          LB_SECURITY="false"
+          LB_UPDATES="false"
+          LB_BACKPORTS="false"
+          LB_LINUX_FLAVOURS="amd64"
+          LB_LINUX_PACKAGES="linux-image"
+          EOF
 
-          # 删除所有自动生成 sources
-          rm -f config/archives/*.list.binary
-          rm -f config/archives/*.list.chroot
-
-          # Debian 官方源（仅主仓库）
+          # ===== 删除所有默认 source 文件 =====
+          rm -rf config/archives
           mkdir -p config/archives
+
+          # 唯一可信源
           cat <<EOF > config/archives/debian.list.chroot
           deb http://deb.debian.org/debian trixie main contrib non-free non-free-firmware
           deb http://deb.debian.org/debian trixie-updates main contrib non-free non-free-firmware
@@ -95,10 +123,6 @@ jobs:
           deb http://deb.debian.org/debian trixie main contrib non-free non-free-firmware
           deb http://deb.debian.org/debian trixie-updates main contrib non-free non-free-firmware
           EOF
-
-          # 内核
-          sed -i 's/^LB_LINUX_FLAVOURS=.*/LB_LINUX_FLAVOURS="amd64"/' config/binary
-          sed -i 's/^LB_LINUX_PACKAGES=.*/LB_LINUX_PACKAGES="linux-image"/' config/binary
 
           # 软件包
           mkdir -p config/package-lists
@@ -136,7 +160,7 @@ jobs:
           fcitx5-chinese-addons
           EOF
 
-          # 中文 locale
+          # 中文环境
           mkdir -p config/includes.chroot/etc/default
           echo "LANG=zh_CN.UTF-8" > config/includes.chroot/etc/default/locale
 
@@ -159,7 +183,7 @@ jobs:
           export XMODIFIERS=@im=fcitx
           EOF
 
-          # 清理体积
+          # 清理
           mkdir -p config/hooks/live
           cat <<'EOF' > config/hooks/live/cleanup.hook.chroot
           #!/bin/bash
@@ -169,6 +193,10 @@ jobs:
           apt-get clean
           EOF
           chmod +x config/hooks/live/cleanup.hook.chroot
+
+          # ===== 核心补刀：删除构建阶段 sources.list =====
+          sudo rm -f /etc/apt/sources.list.d/*
+          sudo sed -i '/security.debian.org/d' /etc/apt/sources.list || true
 
           sudo lb build
 
