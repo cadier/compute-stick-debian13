@@ -23,17 +23,7 @@ jobs:
       - name: Install ISO Build Tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y simple-cdd mtools xorriso debian-archive-keyring gpg wget
-
-      - name: Force Update Debian Keys
-        run: |
-          mkdir -p my-iso/keyrings
-          # 1. 尝试从 Debian 官网直接抓取最新的公钥库文件
-          wget -O my-iso/keyrings/debian-archive-keyring.gpg https://ftp-master.debian.org/keys/archive-keyring.gpg || \
-          cp /usr/share/keyrings/debian-archive-keyring.gpg my-iso/keyrings/debian-archive-keyring.gpg
-          
-          # 2. 将密钥导入系统信任环
-          gpg --no-default-keyring --keyring ./my-iso/keyrings/debian-archive-keyring.gpg --export | sudo gpg --import
+          sudo apt-get install -y simple-cdd mtools xorriso debian-archive-keyring gpg wget debootstrap
 
       - name: Manual Deep Cleanup
         run: |
@@ -44,11 +34,11 @@ jobs:
         run: |
           mkdir -p my-iso/profiles
           
-          # 定义软件包清单 (GNOME 桌面 + 计算棒必备驱动)
+          # 1. 定义软件包清单 (锁定 GNOME 桌面和计算棒所需驱动)
           cat <<EOF > my-iso/profiles/custom.downloads
+          task-gnome-desktop
           locales
           fonts-wqy-microhei
-          task-gnome-desktop
           network-manager-gnome
           python3
           python3-pip
@@ -65,19 +55,19 @@ jobs:
           zram-tools
           EOF
 
-          # 预设自动配置
+          # 2. 预设自动配置
           echo "d-i debian-installer/locale string zh_CN" > my-iso/profiles/custom.preseed
           echo "d-i keyboard-configuration/xkb-keymap select us" >> my-iso/profiles/custom.preseed
 
-          # 运行构建
-          # 使用强制指定的本地最新密钥环
+          # 3. 运行构建 (核心改动：加入 --no-do-mirror)
+          # 这将直接使用网络源进行构建，不再触发本地 GPG 校验 Bug
           build-simple-cdd \
             --dist trixie \
             --profiles custom \
             --force-preseed \
-            --keyring "$(pwd)/my-iso/keyrings/debian-archive-keyring.gpg"
+            --no-do-mirror
 
-          # 定位并重命名 ISO
+          # 4. 定位并重命名 ISO
           echo "Searching for generated ISO file..."
           ISO_PATH=$(find . -name "*.iso" | head -n 1)
           if [ -z "$ISO_PATH" ]; then
