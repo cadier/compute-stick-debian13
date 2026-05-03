@@ -1,8 +1,8 @@
-name: Build Debian 13 For Compute Stick
+name: Build Debian 13 ISO For Compute Stick
 on: [push, workflow_dispatch]
 
 jobs:
-  build:
+  build-iso:
     runs-on: ubuntu-latest
     steps:
       - name: Maximize Disk Space
@@ -20,52 +20,64 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Install Build Tools
+      - name: Install ISO Build Tools
         run: |
-          sudo apt-get update || true
-          # 安装 mmdebstrap 和关键的 Debian 密钥库包
-          sudo apt-get install -y --no-install-recommends \
-            mmdebstrap \
-            qemu-user-static \
-            binfmt-support \
-            debian-archive-keyring
+          sudo apt-get update
+          sudo apt-get install -y simple-cdd mtools xorriso debian-archive-keyring wget
 
       - name: Manual Deep Cleanup
         run: |
-          # 进一步手动清理没用的预装大文件
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc "/usr/local/share/boost" "$AGENT_TOOLSDIRECTORY"
           df -h
 
-      - name: Build Trixie Image
+      - name: Configure and Build ISO
         run: |
-          # 1. 编写环境配置脚本
-          cat <<EOF > setup.sh
-          #!/bin/bash
-          echo "zh_CN.UTF-8 UTF-8" >> /etc/locale.gen
-          locale-gen
-          update-locale LANG=zh_CN.UTF-8
-          echo "debian-stick" > /etc/hostname
-          EOF
-          chmod +x setup.sh
-
-          # 2. 执行云编译 (Debian 13 Trixie)
-          # 包含：中文支持、XFCE桌面、Python环境、Supervisor守护进程、必要的硬件固件
-          sudo mmdebstrap \
-            --architectures=amd64 \
-            --components="main,contrib,non-free,non-free-firmware" \
-            --keyring=/usr/share/keyrings/debian-archive-keyring.gpg \
-            --include="locales,fonts-wqy-microhei,xfce4,xfce4-terminal,lightdm,network-manager-gnome,python3,python3-pip,python3-venv,supervisor,firmware-linux,firmware-realtek,firmware-intel-sound,intel-media-va-driver-non-free,firefox-esr,sudo,nano,htop,zram-tools" \
-            --setup-hook=./setup.sh \
-            trixie \
-            debian13-stick-rootfs.tar.xz \
-            "http://deb.debian.org/debian/"
+          mkdir -p my-iso/profiles
           
-          # 3. 修正权限，否则下一阶段无法读取文件
-          sudo chmod 644 debian13-stick-rootfs.tar.xz
+          # 1. 定义要安装的软件包（包含图形界面、Python、驱动等）
+          # 注意：这里加入了 firmware-linux 以确保计算棒硬件兼容性
+          cat <<EOF > my-iso/profiles/custom.downloads
+          locales
+          fonts-wqy-microhei
+          xfce4
+          xfce4-terminal
+          lightdm
+          network-manager-gnome
+          python3
+          python3-pip
+          python3-venv
+          supervisor
+          firmware-linux
+          firmware-realtek
+          firmware-intel-sound
+          intel-media-va-driver-non-free
+          firefox-esr
+          sudo
+          nano
+          htop
+          zram-tools
+          EOF
 
-      - name: Upload Artifact
+          # 2. 预设自动配置 (Preseed) - 确保安装过程更丝滑
+          echo "d-i debian-installer/locale string zh_CN" > my-iso/profiles/custom.preseed
+          echo "d-i keyboard-configuration/xkb-keymap select us" >> my-iso/profiles/custom.preseed
+
+          # 3. 开始构建 ISO
+          # --dist trixie 指向 Debian 13
+          # --force-preseed 强制使用预设配置
+          sudo build-simple-cdd \
+            --dist trixie \
+            --profiles custom \
+            --force-preseed \
+            --graphical-installer \
+            --output-dir images
+
+          # 4. 重命名 ISO 方便辨认
+          mv images/*.iso debian13-stick-installer.iso
+
+      - name: Upload ISO Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: debian13-image
-          path: debian13-stick-rootfs.tar.xz
+          name: debian13-install-iso
+          path: debian13-stick-installer.iso
           if-no-files-found: error
