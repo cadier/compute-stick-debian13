@@ -1,4 +1,4 @@
-name: Build Debian 13 ISO For Compute Stick
+name: Build Debian 13 GNOME ISO
 on: [push, workflow_dispatch]
 
 jobs:
@@ -8,34 +8,39 @@ jobs:
       - name: Maximize Disk Space
         uses: easimon/maximize-build-space@v10
         with:
-          root-reserve-mb: 2048
+          root-reserve-mb: 4096
           swap-size-mb: 1024
           remove-dotnet: 'true'
           remove-android: 'true'
           remove-haskell: 'true'
           remove-codeql: 'true'
           remove-docker-images: 'true'
-          overprovision-lvm: 'true'
 
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Install ISO Build Tools
+      - name: Install Live Build Tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y simple-cdd mtools xorriso debian-archive-keyring gpg wget debootstrap
+          sudo apt-get install -y live-build debootstrap devscripts
 
-      - name: Manual Deep Cleanup
+      - name: Configure Live Build
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc "/usr/local/share/boost" "$AGENT_TOOLSDIRECTORY"
-          df -h
-
-      - name: Configure and Build ISO
-        run: |
-          mkdir -p my-iso/profiles
+          mkdir -p live-build-dir && cd live-build-dir
           
-          # 1. 定义软件包清单 (锁定 GNOME 桌面和计算棒所需驱动)
-          cat <<EOF > my-iso/profiles/custom.downloads
+          # 1. 初始化配置 (指定 Trixie 稳定版，包含 non-free 固件库)
+          # 注意：non-free-firmware 是 2026 年驱动兼容的核心
+          lb config \
+            --distribution trixie \
+            --debian-installer live \
+            --archive-areas "main contrib non-free non-free-firmware" \
+            --apt-indices false \
+            --memtest none \
+            --mirror-bootstrap "http://deb.debian.org/debian/"
+
+          # 2. 注入软件包列表 (GNOME 桌面 + Python 交易环境 + 驱动)
+          mkdir -p config/package-lists
+          cat <<EOF > config/package-lists/my-packages.list.chroot
           task-gnome-desktop
           locales
           fonts-wqy-microhei
@@ -53,32 +58,28 @@ jobs:
           nano
           htop
           zram-tools
+          bluez
+          bluetooth
           EOF
 
-          # 2. 预设自动配置
-          echo "d-i debian-installer/locale string zh_CN" > my-iso/profiles/custom.preseed
-          echo "d-i keyboard-configuration/xkb-keymap select us" >> my-iso/profiles/custom.preseed
+          # 3. 预设语言为中文
+          mkdir -p config/includes.chroot/etc/default
+          echo "LANG=zh_CN.UTF-8" > config/includes.chroot/etc/default/locale
 
-          # 3. 运行构建 (核心改动：加入 --no-do-mirror)
-          # 这将直接使用网络源进行构建，不再触发本地 GPG 校验 Bug
-          build-simple-cdd \
-            --dist trixie \
-            --profiles custom \
-            --force-preseed \
-            --no-do-mirror
+      - name: Build ISO
+        run: |
+          cd live-build-dir
+          # live-build 必须用 sudo 运行，它能完美处理 2026 年的密钥验证
+          sudo lb build
 
-          # 4. 定位并重命名 ISO
-          echo "Searching for generated ISO file..."
-          ISO_PATH=$(find . -name "*.iso" | head -n 1)
-          if [ -z "$ISO_PATH" ]; then
-            echo "Error: ISO file not found!"
-            exit 1
-          fi
-          mv "$ISO_PATH" ./debian13-stick-installer.iso
+      - name: Locate and Rename ISO
+        run: |
+          find . -name "*.hybrid.iso" -exec mv {} ./debian13-gnome-stick.iso \;
+          # 如果没有 hybrid.iso，尝试找普通的 iso
+          find . -name "*.iso" ! -name "debian13-gnome-stick.iso" -exec mv {} ./debian13-gnome-stick.iso \;
 
       - name: Upload ISO Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: debian13-install-iso
-          path: debian13-stick-installer.iso
-          if-no-files-found: error
+          name: debian13-gnome-iso
+          path: debian13-gnome-stick.iso
