@@ -1,4 +1,4 @@
-name: Build Debian 13 GNOME ISO (Final Fix)
+name: Build Debian 13 GNOME ISO (Clean & Fixed)
 on: [push, workflow_dispatch]
 
 jobs:
@@ -8,7 +8,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 1. 释放空间 (GNOME 环境构建需要约 25GB+ 空间)
+      # 1. 释放空间
       - name: Maximize Build Disk Space
         uses: easimon/maximize-build-space@v10
         with:
@@ -21,7 +21,7 @@ jobs:
           remove-docker-images: 'true'
           overprovision-lvm: 'true'
 
-      # 2. 深度清理宿主机
+      # 2. 深度清理
       - name: Brutal Disk Cleanup
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc "/usr/local/share/boost" "$AGENT_TOOLSDIRECTORY"
@@ -34,12 +34,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y live-build debootstrap devscripts
 
-      # 4. 配置 Live Build (核心修复：强制使用 live-boot 避开 casper)
+      # 4. 配置 Live Build
       - name: Configure Live Build
         run: |
           mkdir -p live-build-dir && cd live-build-dir
           
-          # 关键改动：--initramfs live-boot 确保使用 Debian 原生引导
+          # 核心修复：移除不必要的插件包，显式指定 Debian 13 (Trixie) 引导
           lb config \
             --distribution trixie \
             --debian-installer live \
@@ -55,21 +55,18 @@ jobs:
             --mirror-binary "http://deb.debian.org/debian/" \
             --mirror-binary-security "http://security.debian.org/debian-security"
 
-          # 软件包列表 (GNOME + Python 交易环境 + 计算棒固件)
+          # 软件包列表 (仅保留核心 GNOME 和计算棒驱动)
+          # 已按要求剔除 python3-venv 和 supervisor
           mkdir -p config/package-lists
           cat <<EOF > config/package-lists/my-packages.list.chroot
           live-boot
           live-config
-          live-config-gnome
           linux-image-amd64
           task-gnome-desktop
           locales
           fonts-wqy-microhei
           network-manager-gnome
           python3
-          python3-pip
-          python3-venv
-          supervisor
           firmware-linux
           firmware-realtek
           firmware-intel-sound
@@ -78,7 +75,6 @@ jobs:
           sudo
           nano
           htop
-          zram-tools
           bluez
           bluetooth
           EOF
