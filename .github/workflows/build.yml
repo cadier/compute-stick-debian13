@@ -1,4 +1,5 @@
-name: Debian 13 Trixie Minimal GNOME Installer ISO (GitHub Safe)
+```yaml id="a7k2mz"
+name: Debian 13 Trixie GNOME Installer ISO (GitHub Full Fixed)
 
 on:
   push:
@@ -36,15 +37,17 @@ jobs:
             squashfs-tools \
             grub-pc-bin \
             grub-efi-amd64-bin \
-            mtools
+            mtools \
+            dosfstools
 
-      - name: Configure Debian 13 Minimal ISO
+      - name: Configure Debian 13 ISO
         run: |
           mkdir -p build
           cd build
 
           sudo lb clean --purge || true
 
+          # 禁用缓存减少空间占用
           export LB_BUILD_WITH_CHROOT_CACHE=false
           export LB_BUILD_WITH_BINARY_CACHE=false
 
@@ -62,10 +65,12 @@ jobs:
             --win32-loader false \
             --bootappend-live "boot=live components locales=zh_CN.UTF-8 username=live hostname=debian quiet splash" \
             --initramfs live-boot \
-            --system systemd \
-            --debootstrap-options "--keyring=/usr/share/keyrings/debian-archive-keyring.gpg"
+            --system systemd
 
-          # 禁止自动源
+          # 修复旧版 live-build 的 Debian keyring 问题
+          echo 'export DEBOOTSTRAP_KEYRING=/usr/share/keyrings/debian-archive-keyring.gpg' >> config/bootstrap
+
+          # 禁止自动软件源，完全手动接管
           sed -i 's/^LB_APT_SOURCES_LIST=.*/LB_APT_SOURCES_LIST="false"/' config/binary
           sed -i 's/^LB_SECURITY=.*/LB_SECURITY="false"/' config/binary
           sed -i 's/^LB_UPDATES=.*/LB_UPDATES="false"/' config/binary
@@ -75,40 +80,50 @@ jobs:
           sed -i 's/^LB_LINUX_FLAVOURS=.*/LB_LINUX_FLAVOURS="amd64"/' config/binary
           sed -i 's/^LB_LINUX_PACKAGES=.*/LB_LINUX_PACKAGES="linux-image"/' config/binary
 
-          # 官方源
+          # 官方 Debian 软件源（避免 Ubuntu 污染）
           mkdir -p config/archives
           cat <<EOF > config/archives/debian.list.chroot
           deb http://deb.debian.org/debian trixie main contrib non-free non-free-firmware
           deb http://deb.debian.org/debian trixie-updates main contrib non-free non-free-firmware
           EOF
 
-          # 极限精简软件包
+          # GNOME + 安装器 + 老设备驱动
           mkdir -p config/package-lists
-          cat <<EOF > config/package-lists/minimal.list.chroot
+          cat <<EOF > config/package-lists/desktop.list.chroot
           linux-image-amd64
           live-boot
           live-config
           live-config-systemd
-          gnome-shell
-          gdm3
-          gnome-session
-          gnome-terminal
-          nautilus
-          network-manager
+          task-gnome-desktop
           network-manager-gnome
+          gdm3
           debian-installer-launcher
+          firefox-esr
+          python3
           sudo
           nano
-          locales
+          htop
+          gparted
+          parted
+          os-prober
+          bluez
+          bluetooth
           firmware-linux
           firmware-realtek
           firmware-iwlwifi
           firmware-intel-sound
+          intel-media-va-driver-non-free
           xserver-xorg-video-intel
+          alsa-utils
+          pulseaudio
+          pavucontrol
           fonts-wqy-microhei
+          locales
+          fcitx5
+          fcitx5-chinese-addons
           EOF
 
-          # 中文 locale
+          # 中文环境
           mkdir -p config/includes.chroot/etc/default
           echo "LANG=zh_CN.UTF-8" > config/includes.chroot/etc/default/locale
 
@@ -118,7 +133,7 @@ jobs:
           en_US.UTF-8 UTF-8
           EOF
 
-          # sudo
+          # Live 用户 sudo
           mkdir -p config/includes.chroot/etc/sudoers.d
           echo "live ALL=(ALL) NOPASSWD:ALL" > config/includes.chroot/etc/sudoers.d/live
 
@@ -126,6 +141,9 @@ jobs:
           mkdir -p config/includes.chroot/etc/skel
           cat <<EOF > config/includes.chroot/etc/skel/.xprofile
           export LANG=zh_CN.UTF-8
+          export GTK_IM_MODULE=fcitx
+          export QT_IM_MODULE=fcitx
+          export XMODIFIERS=@im=fcitx
           EOF
 
           # 清理文档减少体积
@@ -139,9 +157,10 @@ jobs:
           EOF
           chmod +x config/hooks/live/cleanup.hook.chroot
 
+          # 开始构建
           sudo lb build
 
-      - name: Show ISO Size
+      - name: Show Build Output
         run: |
           ls -lh build/
           df -h
@@ -149,5 +168,6 @@ jobs:
       - name: Upload ISO
         uses: actions/upload-artifact@v4
         with:
-          name: debian13-trixie-minimal-gnome-iso
+          name: debian13-trixie-gnome-installer-iso
           path: build/*.iso
+```
