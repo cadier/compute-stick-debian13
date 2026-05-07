@@ -7,7 +7,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -23,23 +22,22 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            wget curl rsync xorriso genisoimage isolinux \
-            syslinux-utils squashfs-tools p7zip-full
+            wget curl rsync xorriso isolinux syslinux-utils \
+            squashfs-tools p7zip-full
 
       - name: Download Official Debian 13 Netinst ISO
         run: |
           mkdir -p work && cd work
-          # 动态解析最新 Debian 13 镜像路径，防止 404 报错
           BASE_URL="https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/"
-          ISO_NAME=$(curl -sL $BASE_URL | grep -oP 'debian-[0-9.]+-amd64-netinst.iso' | head -n 1)
+          ISO_NAME=$(curl -sL $BASE_URL | grep -oP 'debian-13\.[0-9.]+\-amd64-netinst\.iso' | head -n 1)
           
           if [ -z "$ISO_NAME" ]; then
-            echo "Stable not found, trying testing/daily..."
+            echo "Stable not found, fallback to daily..."
             BASE_URL="https://cdimage.debian.org/cdimage/daily-builds/daily/arch-latest/amd64/iso-cd/"
             ISO_NAME=$(curl -sL $BASE_URL | grep -oP 'debian-testing-amd64-netinst.iso' | head -n 1)
           fi
           
-          echo "Downloading from: ${BASE_URL}${ISO_NAME}"
+          echo "Downloading: ${BASE_URL}${ISO_NAME}"
           wget -q -O debian.iso "${BASE_URL}${ISO_NAME}"
 
       - name: Extract ISO
@@ -47,95 +45,89 @@ jobs:
           cd work
           mkdir -p iso extract
           sudo mount -o loop debian.iso iso
-          # 使用 sudo rsync 确保文件权限完整
           sudo rsync -a iso/ extract/
           sudo umount iso
 
       - name: Inject Semi-Auto Preseed
         run: |
-          # 加上 sudo 解决 Permission denied 报错
           sudo mkdir -p work/extract/preseed
           
-          # 使用 sudo tee 确保 root 权限写入
-          sudo tee work/extract/preseed/custom.cfg <<EOF
-          ### 地区与语言 (预设中文)
+          sudo tee work/extract/preseed/custom.cfg <<'EOF'
+          ### 基本设置
           d-i debian-installer/locale string zh_CN.UTF-8
           d-i keyboard-configuration/xkb-keymap select us
           d-i time/zone string Asia/Shanghai
-
-          ### 网络配置
+          
+          ### 网络 & 源
           d-i netcfg/choose_interface select auto
           d-i netcfg/get_hostname string debian
           d-i netcfg/get_domain string local
-
-          ### 镜像源设置
+          
           d-i mirror/country string manual
           d-i mirror/http/hostname string deb.debian.org
           d-i mirror/http/directory string /debian
-          d-i mirror/http/proxy string
-
-          ### 用户账户 (user / debian)
-          d-i passwd/root-login boolean false
-          d-i passwd/user-fullname string Debian User
-          d-i passwd/username string user
-          d-i passwd/user-password password debian
-          d-i passwd/user-password-again password debian
-
-          ### 分区设置 (手动模式：停在分区界面确认，防止误删数据)
+          d-i apt-setup/non-free-firmware boolean true
+          d-i apt-setup/non-free boolean true
+          d-i apt-setup/contrib boolean true
+          
+          ### Root 直接登录
+          d-i passwd/root-login boolean true
+          d-i passwd/root-password password 253653
+          d-i passwd/root-password-again password 253653
+          d-i passwd/make-user boolean false
+          
+          ### 分区 Semi-Auto（会停下来让你手动确认）
           d-i partman-auto/method string regular
           d-i partman-auto/choose_recipe select atomic
           d-i partman-partitioning/confirm_write_new_label boolean false
           d-i partman/choose_partition select finish
           d-i partman/confirm boolean false
           d-i partman/confirm_nooverwrite boolean false
-
-          ### 软件包清单
-          tasksel tasksel/first multiselect standard, gnome-desktop
-
-          # 集成计算棒驱动、蓝牙、音频、Python 3
+          
+          ### 桌面环境
+          tasksel tasksel/first multiselect standard, gnome-desktop, lxqt-desktop
+          
+          ### 软件包
           d-i pkgsel/include string \
-            sudo nano htop python3 python3-pip \
+            sudo nano htop curl wget git \
+            python3 python3-pip python3-venv \
             firefox-esr network-manager-gnome \
             bluez bluetooth gnome-bluetooth \
-            firmware-linux firmware-realtek firmware-iwlwifi firmware-intel-sound \
+            firmware-linux firmware-realtek firmware-iwlwifi \
             intel-media-va-driver-non-free \
             pipewire pipewire-alsa pipewire-pulse wireplumber pavucontrol \
-            fcitx5 fcitx5-chinese-addons fonts-wqy-microhei locales
-
-          # 剔除冗余软件 (保持系统纯净，无 supervisor, 无 venv)
+            locales
+          
+          ### 排除
           d-i pkgsel/exclude string \
-            libreoffice* games* thunderbird evolution* rhythmbox \
-            totem cheese shotwell simple-scan cups* yelp supervisor python3-venv
-
+            libreoffice* games* thunderbird* evolution* rhythmbox totem cheese \
+            shotwell simple-scan cups* yelp
+          
           d-i pkgsel/upgrade select none
           popularity-contest popularity-contest/participate boolean false
-
-          ### 引导程序
+          
           d-i grub-installer/only_debian boolean true
           d-i grub-installer/with_other_os boolean true
-
-          ### 结束安装
+          
           d-i finish-install/reboot_in_progress note
           EOF
 
-      - name: Configure Manual Boot Menu
+      - name: Configure Boot Menu
         run: |
-          # 同样使用 sudo 以免权限不足
           cd work/extract
-          sudo sed -i '/append/ s@$@ preseed/file=/cdrom/preseed/custom.cfg@' isolinux/txt.cfg || true
-          sudo sed -i '/linux/ s@$@ preseed/file=/cdrom/preseed/custom.cfg@' boot/grub/grub.cfg || true
+          sudo sed -i '/append/ s|$| preseed/file=/cdrom/preseed/custom.cfg|' isolinux/txt.cfg || true
+          sudo sed -i '/linux.*vmlinuz/ s|$| preseed/file=/cdrom/preseed/custom.cfg|' boot/grub/grub.cfg || true
 
       - name: Rebuild Custom ISO
         run: |
           cd work/extract
-          # xorriso 同样需要 sudo 权限处理 extract 目录下的 root 文件
           sudo xorriso -as mkisofs \
-            -r -V "Debian13_Manual_Stick" \
-            -o ../debian13-custom-manual.iso \
+            -r -V "Debian13_Root_GNOME_LXQt" \
+            -o ../debian13-root-gnome-lxqt.iso \
             -J -joliet-long -cache-inodes \
             -isohybrid-mbr /usr/lib/ISOLINUX/isohdpfx.bin \
             -partition_offset 16 \
-            -A "Debian 13 Manual Custom" \
+            -A "Debian 13 Root Custom" \
             -b isolinux/isolinux.bin \
             -c isolinux/boot.cat \
             -no-emul-boot -boot-load-size 4 -boot-info-table \
@@ -145,5 +137,5 @@ jobs:
       - name: Upload ISO Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: debian13-custom-manual-iso
-          path: work/debian13-custom-manual.iso
+          name: debian13-root-gnome-lxqt-iso
+          path: work/debian13-root-gnome-lxqt.iso
