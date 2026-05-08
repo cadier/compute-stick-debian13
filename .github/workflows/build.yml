@@ -70,11 +70,16 @@ jobs:
           d-i apt-setup/non-free boolean true
           d-i apt-setup/contrib boolean true
           
-          ### Root 直接登录
+          ### 账户配置 (创建 admin 用户并设好密码)
           d-i passwd/root-login boolean true
-          d-i passwd/root-password password 253653
-          d-i passwd/root-password-again password 253653
-          d-i passwd/make-user boolean false
+          d-i passwd/root-password password 123456
+          d-i passwd/root-password-again password 123456
+          
+          d-i passwd/make-user boolean true
+          d-i passwd/user-fullname string Cadier
+          d-i passwd/username string cadier
+          d-i passwd/user-password password 123456
+          d-i passwd/user-password-again password 123456
           
           ### 分区 Semi-Auto（会停下来让你手动确认）
           d-i partman-auto/method string regular
@@ -85,7 +90,7 @@ jobs:
           d-i partman/confirm_nooverwrite boolean false
           
           ### 桌面环境
-          tasksel tasksel/first multiselect standard, gnome-desktop, lxqt-desktop
+          tasksel tasksel/first multiselect standard, gnome-desktop
           
           ### 软件包
           d-i pkgsel/include string \
