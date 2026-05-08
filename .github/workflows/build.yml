@@ -92,12 +92,13 @@ jobs:
           ### 桌面环境
           tasksel tasksel/first multiselect standard, gnome-desktop
           
-          ### 软件包
+          ### 软件包 (已加入轻量级开发环境与中文优化)
           d-i pkgsel/include string \
             sudo nano htop curl wget git \
             python3 python3-pip python3-venv \
             firefox-esr network-manager-gnome \
-            ibus-libpinyin \
+            ibus-libpinyin fonts-noto-cjk \
+            geany geany-plugins \
             bluez bluetooth gnome-bluetooth \
             firmware-linux firmware-realtek firmware-iwlwifi \
             intel-media-va-driver-non-free \
